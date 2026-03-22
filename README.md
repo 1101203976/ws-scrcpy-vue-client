@@ -98,7 +98,9 @@ ws-scrcpy-vue-client/
 
 - [ws-scrcpy](https://github.com/NetrisTV/ws-scrcpy) — 提供 WebSocket 服务端与多路复用、设备发现、scrcpy 协议
 - [scrcpy](https://github.com/Genymobile/scrcpy) — 高性能 Android 投屏与控制
-![Uploading 7874a72ccdfe333142d6ba9fc0fc5555.png…]()
+- 
+## 示意图
+![界面截图](https://picabstract-preview-ftn.weiyun.com/ftn_pic_abs_v3/f17d14569660020bec774e218da0c3490a5b63aae03e68fdada6330e4e6f00adcf1d7f4c387963070c2afc0aed4a6fb7?pictype=scale&from=30113&version=3.3.3.3&fname=test.png&size=750)
 
 ## 开源协议
 
