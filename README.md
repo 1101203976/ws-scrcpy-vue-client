@@ -100,7 +100,7 @@ ws-scrcpy-vue-client/
 - [scrcpy](https://github.com/Genymobile/scrcpy) — 高性能 Android 投屏与控制
 - 
 ## 示意图
-![界面截图](https://picabstract-preview-ftn.weiyun.com/ftn_pic_abs_v3/f17d14569660020bec774e218da0c3490a5b63aae03e68fdada6330e4e6f00adcf1d7f4c387963070c2afc0aed4a6fb7?pictype=scale&from=30113&version=3.3.3.3&fname=test.png&size=750)
+<img src="https://picabstract-preview-ftn.weiyun.com/ftn_pic_abs_v3/f17d14569660020bec774e218da0c3490a5b63aae03e68fdada6330e4e6f00adcf1d7f4c387963070c2afc0aed4a6fb7?pictype=scale&from=30113&version=3.3.3.3&fname=test.png&size=750" width="350" alt="界面截图">
 
 ## 开源协议
 
