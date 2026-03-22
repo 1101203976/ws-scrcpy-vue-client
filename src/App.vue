@@ -29,7 +29,7 @@ export default {
     const urlParams = new URLSearchParams(location.search)
     return {
       devices: [],
-      serverAddr: urlParams.get('server') || 'localhost:8000',
+      serverAddr: urlParams.get('server') || '0.0.0.0:8000',
       loading: false,
       connected: false,
       multiplexer: null,

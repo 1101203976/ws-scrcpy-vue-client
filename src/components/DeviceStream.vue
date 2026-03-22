@@ -27,6 +27,25 @@
 import { StreamReceiver } from "../services/StreamReceiver";
 import { TouchHandler } from "../services/TouchHandler";
 
+const VERTEX_SHADER = `
+  attribute vec2 a_position;
+  attribute vec2 a_texCoord;
+  varying vec2 v_texCoord;
+  void main() {
+    gl_Position = vec4(a_position, 0.0, 1.0);
+    v_texCoord = a_texCoord;
+  }
+`;
+
+const FRAGMENT_SHADER = `
+  precision mediump float;
+  varying vec2 v_texCoord;
+  uniform sampler2D u_texture;
+  void main() {
+    gl_FragColor = texture2D(u_texture, v_texCoord);
+  }
+`;
+
 export default {
   name: "DeviceStream",
   props: {
@@ -38,6 +57,10 @@ export default {
       type: String,
       required: true,
     },
+    qualitySettings: {
+      type: Object,
+      default: () => ({ bitrate: 2000000, maxSize: 1080 })
+    }
   },
   data() {
     return {
@@ -46,46 +69,137 @@ export default {
       streamConnected: false,
       statusText: "正在连接...",
       decoder: null,
-      context: null,
+      gl: null,
+      program: null,
+      texture: null,
       screenWidth: 0,
       screenHeight: 0,
+      cachedCanvasWidth: 0,
+      cachedCanvasHeight: 0,
       frameBuffer: null,
       bufferedSPS: false,
       bufferedPPS: false,
       hadIDR: false,
       videoSettingsSent: false,
       currentPts: 0,
+      connectionId: 0,
     };
+  },
+  watch: {
+    wsUrl: {
+      handler(newUrl, oldUrl) {
+        if (newUrl !== oldUrl) {
+          console.log('wsUrl changed:', oldUrl, '->', newUrl);
+          this.disconnect();
+          this.connect();
+        }
+      }
+    },
+    qualitySettings: {
+      handler(newSettings, oldSettings) {
+        if (newSettings && oldSettings && newSettings.value !== oldSettings.value) {
+          console.log('Quality changed, reconnecting...')
+          this.reconnect()
+        }
+      },
+      deep: true
+    }
   },
   mounted() {
     this.initCanvas();
     this.connect();
+    window.addEventListener('resize', this.handleResize);
   },
   beforeDestroy() {
     this.disconnect();
+    window.removeEventListener('resize', this.handleResize);
   },
   methods: {
     initCanvas() {
       const canvas = this.$refs.canvas;
-      if (canvas) this.context = canvas.getContext("2d");
+      if (!canvas) return;
+
+      this.gl = canvas.getContext('webgl', {
+        alpha: false,
+        desynchronized: true,
+        preserveDrawingBuffer: false
+      });
+
+      if (!this.gl) {
+        console.warn('WebGL not supported, falling back to 2D');
+        return;
+      }
+
+      const gl = this.gl;
+
+      const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+      gl.shaderSource(vertexShader, VERTEX_SHADER);
+      gl.compileShader(vertexShader);
+
+      const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+      gl.shaderSource(fragmentShader, FRAGMENT_SHADER);
+      gl.compileShader(fragmentShader);
+
+      this.program = gl.createProgram();
+      gl.attachShader(this.program, vertexShader);
+      gl.attachShader(this.program, fragmentShader);
+      gl.linkProgram(this.program);
+
+      const positionBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+        -1, -1,  1, -1,  -1, 1,
+        -1,  1,  1, -1,   1, 1
+      ]), gl.STATIC_DRAW);
+
+      const texCoordBuffer = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+        0, 1,  1, 1,  0, 0,
+        0, 0,  1, 1,  1, 0
+      ]), gl.STATIC_DRAW);
+
+      gl.useProgram(this.program);
+
+      const positionLoc = gl.getAttribLocation(this.program, 'a_position');
+      gl.enableVertexAttribArray(positionLoc);
+      gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+      gl.vertexAttribPointer(positionLoc, 2, gl.FLOAT, false, 0, 0);
+
+      const texCoordLoc = gl.getAttribLocation(this.program, 'a_texCoord');
+      gl.enableVertexAttribArray(texCoordLoc);
+      gl.bindBuffer(gl.ARRAY_BUFFER, texCoordBuffer);
+      gl.vertexAttribPointer(texCoordLoc, 2, gl.FLOAT, false, 0, 0);
+
+      this.texture = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, this.texture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     },
 
     async connect() {
+      const currentConnectionId = ++this.connectionId;
       try {
+        console.log('Connecting with wsUrl:', this.wsUrl);
         this.statusText = "正在连接...";
         this.initDecoder();
         this.streamReceiver = new StreamReceiver(this.wsUrl);
 
         this.streamReceiver.on("connected", () => {
+          if (this.connectionId !== currentConnectionId) return;
           this.streamConnected = true;
           this.statusText = "已连接";
         });
 
         this.streamReceiver.on("video", (data) => {
+          if (this.connectionId !== currentConnectionId) return;
           this.handleVideoFrame(data);
         });
 
         this.streamReceiver.on("displayInfo", (info) => {
+          if (this.connectionId !== currentConnectionId) return;
           if (info && info.length > 0 && !this.videoSettingsSent) {
             this.videoSettingsSent = true;
             this.sendVideoSettings(info[0]);
@@ -93,11 +207,13 @@ export default {
         });
 
         this.streamReceiver.on("disconnected", () => {
+          if (this.connectionId !== currentConnectionId) return;
           this.streamConnected = false;
           this.statusText = "连接已断开";
         });
 
         this.streamReceiver.on("error", () => {
+          if (this.connectionId !== currentConnectionId) return;
           this.statusText = "连接出错";
         });
 
@@ -124,6 +240,28 @@ export default {
         this.touchHandler.destroy();
         this.touchHandler = null;
       }
+      if (this.gl) {
+        this.gl = null;
+        this.program = null;
+        this.texture = null;
+      }
+    },
+
+    reconnect() {
+      this.disconnect();
+      this.streamConnected = false;
+      this.videoSettingsSent = false;
+      this.bufferedSPS = false;
+      this.bufferedPPS = false;
+      this.hadIDR = false;
+      this.currentPts = 0;
+      this.frameBuffer = null;
+      this.cachedCanvasWidth = 0;
+      this.cachedCanvasHeight = 0;
+      this.$nextTick(() => {
+        this.initCanvas();
+        this.connect();
+      });
     },
 
     initDecoder() {
@@ -227,18 +365,22 @@ export default {
       const bufferLength = 1 + 35;
       const buffer = new ArrayBuffer(bufferLength);
       const view = new DataView(buffer);
+      const settings = this.qualitySettings || { bitrate: 2000000, maxSize: 1080 };
+      const maxSize = settings.maxSize || 1080;
+      const bitrate = settings.bitrate || 2000000;
+
       let offset = 0;
       view.setUint8(offset, TYPE_CHANGE_STREAM_PARAMETERS);
       offset += 1;
-      view.setInt32(offset, 524288, false);
+      view.setInt32(offset, Math.round(bitrate / 8), false);
       offset += 4;
       view.setInt32(offset, 24, false);
       offset += 4;
       view.setInt8(offset, 5);
       offset += 1;
-      view.setInt16(offset, 1280, false);
+      view.setInt16(offset, maxSize, false);
       offset += 2;
-      view.setInt16(offset, 1280, false);
+      view.setInt16(offset, maxSize, false);
       offset += 2;
       for (let i = 0; i < 4; i++) {
         view.setInt16(offset, 0, false);
@@ -270,31 +412,40 @@ export default {
     },
 
     updateCanvasSize(width, height) {
+      if (this.cachedCanvasWidth === width && this.cachedCanvasHeight === height) {
+        return;
+      }
       const canvas = this.$refs.canvas;
-      const wrapper = this.$refs.videoWrapper;
-      if (!canvas || !wrapper) return;
+      if (!canvas) return;
       canvas.width = width;
       canvas.height = height;
-      const wrapperRect = wrapper.getBoundingClientRect();
-      const scaleX = wrapperRect.width / width;
-      const scaleY = wrapperRect.height / height;
-      const scale = Math.min(scaleX, scaleY, 1);
-      canvas.style.width = `${width * scale}px`;
-      canvas.style.height = `${height * scale}px`;
+      this.cachedCanvasWidth = width;
+      this.cachedCanvasHeight = height;
+      if (this.gl) {
+        this.gl.viewport(0, 0, width, height);
+      }
     },
 
     drawFrame(frame) {
-      if (!this.context) return;
+      if (!this.gl) return;
       const canvas = this.$refs.canvas;
-      if (
-        canvas.width !== frame.displayWidth ||
-        canvas.height !== frame.displayHeight
-      ) {
-        this.updateCanvasSize(frame.displayWidth, frame.displayHeight);
-        canvas.width = frame.displayWidth;
-        canvas.height = frame.displayHeight;
+      if (!canvas) return;
+
+      const width = frame.displayWidth;
+      const height = frame.displayHeight;
+
+      if (this.cachedCanvasWidth !== width || this.cachedCanvasHeight !== height) {
+        canvas.width = width;
+        canvas.height = height;
+        this.cachedCanvasWidth = width;
+        this.cachedCanvasHeight = height;
+        this.gl.viewport(0, 0, width, height);
       }
-      this.context.drawImage(frame, 0, 0);
+
+      const gl = this.gl;
+      gl.bindTexture(gl.TEXTURE_2D, this.texture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, frame);
+      gl.drawArrays(gl.TRIANGLES, 0, 6);
     },
 
     handleMouseDown(e) {
@@ -321,26 +472,34 @@ export default {
     handleTouchEnd(e) {
       if (this.touchHandler) this.touchHandler.handleTouchEvent(e, "end");
     },
-    
+
+    handleResize() {
+      const canvas = this.$refs.canvas;
+      if (canvas && (canvas.width > 0 && canvas.height > 0)) {
+        setTimeout(() => {
+          this.updateCanvasSize(canvas.width, canvas.height);
+        }, 300);
+      }
+    },
     sendKey(keycode) {
       if (!this.streamReceiver) return;
-      
+
       const ACTION_DOWN = 0;
       const ACTION_UP = 1;
       const TYPE_KEYCODE = 0;
       const PAYLOAD_LENGTH = 13;
-      
+
       const createMsg = (action) => {
         const buffer = new ArrayBuffer(PAYLOAD_LENGTH + 1);
         const view = new DataView(buffer);
         view.setUint8(0, TYPE_KEYCODE);
         view.setUint8(1, action);
-        view.setUint32(2, keycode, false); // Big Endian
-        view.setUint32(6, 0, false); // repeat
-        view.setUint32(10, 0, false); // metaState
+        view.setUint32(2, keycode, false);
+        view.setUint32(6, 0, false);
+        view.setUint32(10, 0, false);
         return buffer;
       };
-      
+
       this.streamReceiver.sendControlMessage(createMsg(ACTION_DOWN));
       this.streamReceiver.sendControlMessage(createMsg(ACTION_UP));
     },
@@ -357,6 +516,7 @@ export default {
   background: #000;
   border-radius: 12px;
   overflow: hidden;
+  transition: all 0.3s ease;
 }
 
 .video-wrapper {
@@ -369,10 +529,11 @@ export default {
 }
 
 .video-canvas {
-  max-width: 100%;
-  max-height: 100%;
+  width: 100%;
+  height: 100%;
   border-radius: 8px;
   touch-action: none;
+  display: block;
 }
 
 .loading-overlay {

@@ -24,7 +24,37 @@
         <p>请通过 USB 连接 Android 设备并启用 USB 调试</p>
       </div>
       
-      <div v-else class="device-grid">
+      <div v-if="devices.length > 0" class="content-header">
+        <select
+          class="quality-select"
+          :value="videoQuality"
+          @change="changeVideoQuality"
+        >
+          <option
+            v-for="option in videoQualityOptions"
+            :key="option.value"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </option>
+        </select>
+        <button
+          type="button"
+          class="fullscreen-toggle-btn"
+          :title="isFullscreen ? '缩小显示' : '放大显示'"
+          @click.stop="toggleFullscreen"
+        >
+          <svg v-if="!isFullscreen" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+          </svg>
+          <svg v-else viewBox="0 0 24 24" fill="currentColor">
+            <path d="M19 14l-7 7m0 0l-7-7m7 7V3"/>
+          </svg>
+          <span>{{ isFullscreen ? '缩小' : '放大' }}</span>
+        </button>
+      </div>
+      
+      <div v-if="devices.length > 0" class="device-grid" :class="{ 'fullscreen': isFullscreen }">
         <div 
           v-for="device in sortedDevices" 
           :key="device.udid" 
@@ -32,7 +62,7 @@
           :class="{ 
             active: device.state === 'device', 
             inactive: device.state !== 'device',
-            'drag-target': dragTargetUdid === device.udid 
+            'drag-target': dragTargetUdid === device.udid
           }"
           @dragover="onDragOver"
           @drop="onDrop($event, device)"
@@ -40,49 +70,11 @@
         >
           <!-- 1. 顶部：设备名和连接状态 -->
           <div class="device-card-header">
-            <div class="device-info">
+            <div class="device-info" @click="openAliasEdit(device)">
               <h3 class="device-name">
                 {{ getDisplayName(device) }}
               </h3>
-              <button
-                type="button"
-                class="alias-btn"
-                title="设置别名"
-                @click.stop="openAliasEdit(device)"
-              >
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/>
-                </svg>
-              </button>
-            </div>
-            <!-- Add Drag Handle Icon - 仅手柄可拖动排序，避免拖动画面触发排序 -->
-             <div
-               class="drag-handle"
-               title="按住拖动排序"
-               draggable="true"
-               @dragstart="onDragStart($event, device)"
-               @dragend="onDragEnd"
-             >
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 10c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0-6c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"/>
-              </svg>
-            </div>
-            <div class="status-group">
-              <button
-                v-if="device.state === 'device'"
-                type="button"
-                class="reconnect-btn-mini"
-                title="重连 Server"
-                @click.stop="reconnectServer(device)"
-              >
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M17.65,6.35C16.2,4.9 14.21,4 12,4c-4.42,0 -7.99,3.58 -7.99,8s3.57,8 7.99,8c3.73,0 6.84,-2.55 7.73,-6h-2.08c-0.82,2.33 -3.04,4 -5.65,4 -3.31,0 -6,-2.69 -6,-6s2.69,-6 6,-6c1.66,0 3.14,0.69 4.22,1.78L13,11h7V4l-2.35,2.35z"/>
-                </svg>
-                <span>重连</span>
-              </button>
-              <span :class="['status-badge', device.state === 'device' ? 'device' : 'offline']">
-                {{ device.state === 'device' ? '已连接' : '离线' }}
-              </span>
+              <span class="edit-hint">点击修改</span>
             </div>
           </div>
 
@@ -96,10 +88,8 @@
                   :key="device.udid"
                   :device="device"
                   :wsUrl="getStreamUrl(device)"
+                  :qualitySettings="getVideoQualitySettings()"
                 />
-                <div v-else class="stream-placeholder">
-                  <span>已放大显示</span>
-                </div>
               </div>
             </template>
             <template v-else>
@@ -115,17 +105,7 @@
 
           <!-- 3. 底部：操作按钮 -->
           <div class="device-card-actions" v-if="device.state === 'device'">
-            <!-- 新增控制按钮 -->
-            <button
-              type="button"
-              class="action-btn icon-btn"
-              title="电源"
-              @click.stop="sendKeyToDevice(device, 26)"
-            >
-              <svg viewBox="0 0 48 48" fill="currentColor">
-                 <path d="M26 6h-4v20h4V6zm9.67 4.33l-2.83 2.83C35.98 15.73 38 19.62 38 24c0 7.73-6.27 14-14 14s-14-6.27-14-14c0-4.38 2.02-8.27 5.16-10.84l-2.83-2.83C8.47 13.63 6 18.52 6 24c0 9.94 8.06 18 18 18s18-8.06 18-18c0-5.48-2.47-10.37-6.33-13.67z"/>
-              </svg>
-            </button>
+            <!-- 保留的控制按钮 -->
             <button
               type="button"
               class="action-btn icon-btn"
@@ -156,27 +136,6 @@
                 <path d="M36.7 10.9L36.7 37.6C36.7 39.4 35.5 40.1 34 39.2L12.1 26C10.6 25 10.6 23.5 12.1 22.6L34 9.4C35.5 8.5 36.7 9.2 36.7 10.9Z"/>
               </svg>
             </button>
-
-            <button
-              type="button"
-              class="action-btn expand-btn"
-              title="放大显示"
-              @click.stop="expandedDevice = device"
-            >
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
-              </svg>
-            </button>
-            <button
-              type="button"
-              class="action-btn reboot-btn"
-              title="重启设备"
-              @click.stop="rebootDevice(device)"
-            >
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M17.65,6.35C16.2,4.9 14.21,4 12,4c-4.42,0 -7.99,3.58 -7.99,8s3.57,8 7.99,8c3.73,0 6.84,-2.55 7.73,-6h-2.08c-0.82,2.33 -3.04,4 -5.65,4 -3.31,0 -6,-2.69 -6,-6s2.69,-6 6,-6c1.66,0 3.14,0.69 4.22,1.78L13,11h7V4l-2.35,2.35z"/>
-              </svg>
-            </button>
           </div>
           <div class="device-card-actions" v-else>
             <!-- 离线状态下的占位或其他操作 -->
@@ -185,33 +144,6 @@
         </div>
       </div>
     </main>
-    
-    <!-- 放大层：用 DeviceStream 全屏显示 -->
-    <Teleport to="body">
-      <div v-if="expandedDevice" class="expand-overlay" @click.self="expandedDevice = null">
-        <div class="expand-content">
-          <div class="expand-header">
-            <span class="expand-title">
-              {{ getDisplayName(expandedDevice) }}
-            </span>
-            <button type="button" class="expand-close" @click="expandedDevice = null" title="关闭">
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
-              </svg>
-              <span>关闭</span>
-            </button>
-          </div>
-          <div class="expand-stream">
-            <DeviceStream
-              ref="expandedStream"
-              :key="'expand-' + expandedDevice.udid"
-              :device="expandedDevice"
-              :wsUrl="getStreamUrl(expandedDevice)"
-            />
-          </div>
-        </div>
-      </div>
-    </Teleport>
   </div>
 </template>
 
@@ -223,19 +155,31 @@ export default {
   components: { DeviceStream },
   data() {
     return {
-      expandedDevice: null,
+      isFullscreen: false,
       aliases: {},
-      deviceOrder: [], // Array of UDIDs
-      dragTargetUdid: null // for visual feedback
+      deviceOrder: [],
+      dragTargetUdid: null,
+      expandedDevice: null,
+      videoQuality: 'medium',
+      videoQualityOptions: [
+        { label: '极低', value: 'ultra-low', bitrate: 256000, maxSize: 320 },
+        { label: '超低', value: 'very-low', bitrate: 512000, maxSize: 480 },
+        { label: '普清', value: 'low', bitrate: 1000000, maxSize: 720 },
+        { label: '高清', value: 'medium', bitrate: 2000000, maxSize: 1080 },
+        { label: '超清', value: 'high', bitrate: 8000000, maxSize: 1920 }
+      ]
     }
   },
   created() {
     try {
       const rawAliases = localStorage.getItem('web-scrcpy-device-aliases')
       if (rawAliases) this.aliases = { ...this.aliases, ...JSON.parse(rawAliases) }
-      
+
       const rawOrder = localStorage.getItem('web-scrcpy-device-order')
       if (rawOrder) this.deviceOrder = JSON.parse(rawOrder)
+
+      const rawQuality = localStorage.getItem('web-scrcpy-video-quality')
+      if (rawQuality) this.videoQuality = rawQuality
     } catch (e) {}
   },
   computed: {
@@ -312,6 +256,29 @@ export default {
       params.set('udid', device.udid)
       return `${protocol}//${this.serverAddr}/?${params.toString()}`
     },
+    getVideoQualitySettings() {
+      const option = this.videoQualityOptions.find(o => o.value === this.videoQuality)
+      return option || this.videoQualityOptions[1]
+    },
+    changeVideoQuality(event) {
+      this.videoQuality = event.target.value
+      try {
+        localStorage.setItem('web-scrcpy-video-quality', this.videoQuality)
+      } catch (e) {}
+
+      if (this.$refs.deviceStreams) {
+        const streams = Array.isArray(this.$refs.deviceStreams) ? this.$refs.deviceStreams : [this.$refs.deviceStreams]
+        streams.forEach(stream => {
+          if (stream && stream.reconnect) {
+            stream.reconnect()
+          }
+        })
+      }
+
+      if (this.expandedDevice && this.$refs.expandedStream && this.$refs.expandedStream.reconnect) {
+        this.$refs.expandedStream.reconnect()
+      }
+    },
     // Drag and Drop Logic
     onDragStart(event, device) {
       event.dataTransfer.effectAllowed = 'move'
@@ -377,7 +344,6 @@ export default {
       } catch (e) {}
     },
     sendKeyToDevice(device, keycode) {
-      // 1. Check if this device is currently expanded
       if (this.expandedDevice && this.expandedDevice.udid === device.udid) {
         const stream = this.$refs.expandedStream
         if (stream) {
@@ -385,15 +351,9 @@ export default {
            return
         }
       }
-      
-      // 2. Not expanded, find in list
+
       if (this.$refs.deviceStreams) {
-        // refs might be an array or single (if only one rendered? no, v-for always array in Vue 2 usually)
-        // In Vue 2 inside v-for, refs are arrays.
-        // In Vue 3, if not bound to function, behavior can vary.
-        // We assume array and find matching device.
         const streams = Array.isArray(this.$refs.deviceStreams) ? this.$refs.deviceStreams : [this.$refs.deviceStreams]
-        
         const stream = streams.find(s => s.device && s.device.udid === device.udid)
         if (stream) {
           stream.sendKey(keycode)
@@ -567,6 +527,19 @@ export default {
       } catch (e) {
         console.error('[Control] Reconnect failed:', e)
       }
+    },
+    toggleFullscreen() {
+      this.isFullscreen = !this.isFullscreen
+      setTimeout(() => {
+        if (this.$refs.deviceStreams) {
+          const streams = Array.isArray(this.$refs.deviceStreams) ? this.$refs.deviceStreams : [this.$refs.deviceStreams]
+          streams.forEach(stream => {
+            if (stream && stream.handleResize) {
+              stream.handleResize()
+            }
+          })
+        }
+      }, 1000)
     }
   }
 }
@@ -581,9 +554,72 @@ export default {
 
 .content {
   flex: 1;
-  padding: 40px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
+}
+
+.content-header {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 0 12px;
+}
+
+.quality-select {
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  background: rgba(0, 212, 170, 0.1);
+  color: #00d4aa;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.quality-select:hover {
+  background: rgba(0, 212, 170, 0.2);
+  border-color: rgba(0, 212, 170, 0.3);
+}
+
+.quality-select:focus {
+  border-color: #00d4aa;
+  box-shadow: 0 0 0 2px rgba(0, 212, 170, 0.2);
+}
+
+.quality-select option {
+  background: #1a1a2e;
+  color: #fff;
+}
+
+.fullscreen-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(0, 212, 170, 0.1);
+  color: #00d4aa;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.fullscreen-toggle-btn:hover {
+  background: rgba(0, 212, 170, 0.2);
+  border-color: rgba(0, 212, 170, 0.3);
+}
+
+.fullscreen-toggle-btn svg {
+  width: 16px;
+  height: 16px;
 }
 
 .loading, .empty-state {
@@ -646,7 +682,14 @@ export default {
 
 .device-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 12px;
+  transition: all 0.5s ease;
+}
+
+/* 全屏模式下的设备网格 */
+.device-grid.fullscreen {
+  grid-template-columns: 1fr;
   gap: 24px;
 }
 
@@ -655,15 +698,107 @@ export default {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 16px;
   overflow: hidden;
-  transition: all 0.3s ease;
+  transition: all 0.5s ease;
   position: relative;
   display: flex;
   flex-direction: column;
 }
 
+/* 全屏模式下的设备卡片 */
+.device-grid.fullscreen .device-card {
+  min-height: 700px;
+}
+
+.device-grid.fullscreen .device-card-header {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.device-grid.fullscreen .device-body {
+  flex: 1;
+  background: #000;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 600px;
+}
+
+.device-grid.fullscreen .device-card-actions {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.device-grid.fullscreen .device-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.device-grid.fullscreen .action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.device-grid.fullscreen .icon-btn {
+  padding: 8px;
+}
+
+.device-grid.fullscreen .icon-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* 确保视频内容充满容器 */
+.device-grid.fullscreen .device-stream-wrap {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+}
+
+.device-grid.fullscreen .device-stream-wrap .stream-inline {
+  width: 100%;
+  height: 100%;
+  min-height: 400px;
+}
+
+.device-grid.fullscreen .device-stream-wrap .video-wrapper {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.device-grid.fullscreen .device-stream-wrap .video-canvas {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
 
 .device-card-header {
-  padding: 12px 16px;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -678,13 +813,20 @@ export default {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  min-height: 300px; /* 增加高度以适应竖屏 */
+  min-height: 180px; /* 减小高度以适应小窗口 */
+  transition: all 0.5s ease;
 }
 
 .device-stream-wrap {
   width: 100%;
   height: 100%;
   flex: 1;
+  position: relative;
+}
+
+.device-stream-wrap.expanded {
+  width: 100%;
+  height: 100%;
 }
 
 .device-offline-placeholder {
@@ -693,15 +835,15 @@ export default {
   align-items: center;
   justify-content: center;
   height: 100%;
-  min-height: 300px;
+  min-height: 180px;
   color: rgba(255, 255, 255, 0.2);
 }
 
 .device-card-actions {
-  padding: 12px 16px;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   background: rgba(0, 0, 0, 0.2);
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
@@ -710,10 +852,10 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 8px;
-  font-size: 14px;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -727,7 +869,7 @@ export default {
 .expand-btn {
   background: rgba(0, 212, 170, 0.1);
   color: #00d4aa;
-  padding: 8px; /* Tighter padding for icon */
+  padding: 6px; /* Tighter padding for icon */
 }
 
 .expand-btn:hover {
@@ -736,12 +878,12 @@ export default {
 }
 
 .expand-btn svg {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
 }
 
 .icon-btn {
-  padding: 8px;
+  padding: 6px;
   background: rgba(255, 255, 255, 0.05);
   color: rgba(255, 255, 255, 0.8);
 }
@@ -752,14 +894,14 @@ export default {
 }
 
 .icon-btn svg {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
 }
 
 .reboot-btn {
   background: rgba(255, 71, 87, 0.1);
   color: #ff4757;
-  padding: 8px;
+  padding: 6px;
 }
 
 .reboot-btn:hover {
@@ -768,8 +910,8 @@ export default {
 }
 
 .reboot-btn svg {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
 }
 
 .reconnect-btn-mini {
@@ -804,15 +946,21 @@ export default {
 
 .device-info {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 2px;
   flex: 1;
   min-width: 0;
+  cursor: pointer;
+}
+
+.edit-hint {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.5);
 }
 
 /* Rest of reusable styles */
 .device-name {
-  font-size: 16px;
+  font-size: 12px;
   font-weight: 600;
   color: #fff;
   overflow: hidden;
@@ -859,82 +1007,6 @@ export default {
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-
-/* 放大层：全屏 overlay，用 DeviceStream 显示 */
-.expand-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(8px);
-}
-
-.expand-content {
-  width: 90vw;
-  height: 90vh;
-  max-width: 1400px;
-  display: flex;
-  flex-direction: column;
-  background: rgba(20, 20, 30, 0.98);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  overflow: hidden;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.5);
-}
-
-.expand-header {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.expand-title {
-  font-size: 16px;
-  font-weight: 600;
-  color: #fff;
-}
-
-.expand-close {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border: none;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.9);
-  font-size: 14px;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.expand-close:hover {
-  background: rgba(255, 255, 255, 0.15);
-}
-
-.expand-close svg {
-  width: 20px;
-  height: 20px;
-}
-
-.expand-stream {
-  flex: 1;
-  min-height: 0;
-  position: relative;
-}
-
-
-.expand-stream :deep(.stream-inline) {
-  min-height: 100%;
-  height: 100%;
 }
 
 .drag-handle {
