@@ -1,10 +1,6 @@
 # ws-scrcpy-vue-client
 
-基于 Vue 2 的 **ws-scrcpy** Web 客户端，在浏览器中实时查看、控制多台 Android 设备屏幕。配合 [ws-scrcpy](https://github.com/NetrisTV/ws-scrcpy) 服务端使用，无需安装 APK，即可在电脑浏览器里投屏与触控操作设备。
-
-![Vue 2](https://img.shields.io/badge/Vue-2.7-42b883?logo=vue.js)
-![Vite](https://img.shields.io/badge/Vite-4-646cff?logo=vite)
-![License](https://img.shields.io/badge/license-MIT-blue)
+基于https://github.com/maijiawei/ws-scrcpy-vue-client的fork项目,增加缩小展示,增加清晰度修改。
 
 ## 功能特性
 
@@ -102,6 +98,7 @@ ws-scrcpy-vue-client/
 
 - [ws-scrcpy](https://github.com/NetrisTV/ws-scrcpy) — 提供 WebSocket 服务端与多路复用、设备发现、scrcpy 协议
 - [scrcpy](https://github.com/Genymobile/scrcpy) — 高性能 Android 投屏与控制
+![Uploading 7874a72ccdfe333142d6ba9fc0fc5555.png…]()
 
 ## 开源协议
 
